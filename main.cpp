@@ -48,17 +48,6 @@ enum FeatureSupport
 	QUERY
 };
 
-enum FeatureList
-{
-	NAT_TYPE_DETECTION_SERVER,
-	NAT_PUNCHTHROUGH_SERVER,
-	RELAY_PLUGIN,
-	UDP_PROXY_COORDINATOR,
-	UDP_PROXY_SERVER,
-	CLOUD_SERVER,
-	FEATURE_LIST_COUNT,
-};
-
 static unsigned short DEFAULT_RAKPEER_PORT=61111;
 
 #define NatTypeDetectionServerFramework_Supported QUERY
@@ -80,49 +69,6 @@ struct SampleFramework
 	FeatureSupport isSupported;
 };
 
-struct NatTypeDetectionServerFramework : public SampleFramework
-{
-	NatTypeDetectionServerFramework() {isSupported=NatTypeDetectionServerFramework_Supported; ntds=0;}
-	virtual const char * QueryName(void) {return "NatTypeDetectionServer";}
-	virtual const char * QueryRequirements(void) {return "Requires 4 IP addresses";}
-	virtual const char * QueryFunction(void) {return "Determines router type to filter by connectable systems.\nOne instance needed, multiple instances may exist to spread workload.";}
-	virtual void Init(SLNet::RakPeerInterface *rakPeer)
-	{
-		if (isSupported==SUPPORTED)
-		{
-			ntds = new NatTypeDetectionServer;
-			rakPeer->AttachPlugin(ntds);
-
-			if (rakPeer->GetNumberOfAddresses() < 4)
-			{
-					printf("Failed. Not enough IP addresses to bind to.\n");
-					rakPeer->DetachPlugin(ntds);
-					delete ntds;
-					ntds=0;
-					isSupported=UNSUPPORTED;
-					return;
-			}
-			ntds->Startup(rakPeer->GetLocalIP(1), rakPeer->GetLocalIP(2), rakPeer->GetLocalIP(3));
-		}
-	}
-	virtual void ProcessPacket(SLNet::RakPeerInterface *rakPeer, Packet *packet)
-	{
-		// unused parameters
-		(void)rakPeer;
-		(void)packet;
-	}
-	virtual void Shutdown(SLNet::RakPeerInterface *rakPeer)
-	{
-		if (ntds)
-		{
-			rakPeer->DetachPlugin(ntds);
-			delete ntds;
-		}
-		ntds=0;
-	}
-
-	NatTypeDetectionServer *ntds;
-};
 struct NatPunchthroughServerFramework : public SampleFramework, public NatPunchthroughServerDebugInterface_Printf
 {
 	NatPunchthroughServerFramework() {isSupported=NatPunchthroughServerFramework_Supported; nps=0;}
@@ -158,334 +104,7 @@ struct NatPunchthroughServerFramework : public SampleFramework, public NatPuncht
 
 	NatPunchthroughServer *nps;
 };
-struct RelayPluginFramework : public SampleFramework
-{
-	RelayPluginFramework() {relayPlugin=nullptr;isSupported=RelayPlugin_Supported;}
-	virtual const char * QueryName(void) {return "RelayPlugin";}
-	virtual const char * QueryRequirements(void) {return "None.";}
-	virtual const char * QueryFunction(void) {return "Relays messages between named connections.";}
-	virtual void Init(SLNet::RakPeerInterface *rakPeer)
-	{
-		if (isSupported==SUPPORTED)
-		{
-			relayPlugin = new RelayPlugin;
-			rakPeer->AttachPlugin(relayPlugin);
-			relayPlugin->SetAcceptAddParticipantRequests(true);
-		}
-	}
-	virtual void ProcessPacket(SLNet::RakPeerInterface *rakPeer, Packet *packet)
-	{
-		// unused parameters
-		(void)rakPeer;
-		(void)packet;
-	}
-	virtual void Shutdown(SLNet::RakPeerInterface *rakPeer)
-	{
-		if (relayPlugin)
-		{
-			rakPeer->DetachPlugin(relayPlugin);
-			delete relayPlugin;
-			relayPlugin=0;
-		}
-	}
 
-	RelayPlugin *relayPlugin;
-};
-struct UDPProxyCoordinatorFramework : public SampleFramework
-{
-	UDPProxyCoordinatorFramework() {udppc=0; isSupported=UDPProxyCoordinatorFramework_Supported;}
-	virtual const char * QueryName(void) {return "UDPProxyCoordinator";}
-	virtual const char * QueryRequirements(void) {return "Bandwidth to handle a few hundred bytes per game session.";}
-	virtual const char * QueryFunction(void) {return "Coordinates UDPProxyClient to find available UDPProxyServer.\nExactly one instance required.";}
-	virtual void Init(SLNet::RakPeerInterface *rakPeer)
-	{
-		if (isSupported==SUPPORTED)
-		{
-			udppc = new UDPProxyCoordinator;
-			rakPeer->AttachPlugin(udppc);
-
-			char password[512];
-			printf("Create password for UDPProxyCoordinator: ");
-			Gets(password,sizeof(password));
-			if (password[0]==0)
-			{
-				password[0]='a';
-				password[1]=0;
-			}
-			udppc->SetRemoteLoginPassword(password);
-		}
-	}
-	virtual void ProcessPacket(SLNet::RakPeerInterface *rakPeer, Packet *packet)
-	{
-		// unused parameters
-		(void)rakPeer;
-		(void)packet;
-	}
-	virtual void Shutdown(SLNet::RakPeerInterface *rakPeer)
-	{
-		if (udppc)
-		{
-			rakPeer->DetachPlugin(udppc);
-			delete udppc;
-			udppc=0;
-		}
-	}
-
-	UDPProxyCoordinator *udppc;
-};
-SystemAddress SelectAmongConnectedSystems(SLNet::RakPeerInterface *rakPeer, const char *hostName)
-{
-	DataStructures::List<SystemAddress> addresses;
-	DataStructures::List<RakNetGUID> guids;
-	rakPeer->GetSystemList(addresses, guids);
-	if (addresses.Size()==0)
-	{
-		return SLNet::UNASSIGNED_SYSTEM_ADDRESS;
-	}
-	if (addresses.Size()>1)
-	{
-		printf("Select IP address for %s.\n", hostName);
-		char buff[64];
-		for (unsigned int i=0; i < addresses.Size(); i++)
-		{
-			addresses[i].ToString(true, buff, static_cast<size_t>(64));
-			printf("%i. %s\n", i+1, buff);
-		}
-		Gets(buff,sizeof(buff));
-		if (buff[0]==0)
-		{
-			return SLNet::UNASSIGNED_SYSTEM_ADDRESS;
-		}
-		unsigned int idx = atoi(buff);
-		if (idx<=0 || idx > addresses.Size())
-		{
-			return SLNet::UNASSIGNED_SYSTEM_ADDRESS;
-		}
-		return addresses[idx-1];
-	}
-	else
-		return addresses[0];
-};
-SystemAddress ConnectBlocking(SLNet::RakPeerInterface *rakPeer, const char *hostName)
-{
-	SystemAddress returnvalue = SLNet::UNASSIGNED_SYSTEM_ADDRESS;
-	char ipAddr[64];
-	printf("Enter IP of system %s is running on: ", hostName);
-	Gets(ipAddr,sizeof(ipAddr));
-	if (ipAddr[0]==0)
-	{
-		printf("Failed. Not connected to %s.\n", hostName);
-		return SLNet::UNASSIGNED_SYSTEM_ADDRESS;
-	}
-	char port[64];
-	printf("Enter port of system %s is running on: ", hostName);
-	Gets(port, sizeof(port));
-	if (port[0]==0)
-	{
-		printf("Failed. Not connected to %s.\n", hostName);
-		return SLNet::UNASSIGNED_SYSTEM_ADDRESS;
-	}
-	const int intPort = atoi(port);
-	if ((intPort < 0) || (intPort > std::numeric_limits<unsigned short>::max())) {
-		printf("Failed. Specified port %d is outside valid bounds [0, %u]", intPort, std::numeric_limits<unsigned short>::max());
-		return SLNet::UNASSIGNED_SYSTEM_ADDRESS;
-	}
-	if (rakPeer->Connect(ipAddr, static_cast<unsigned short>(intPort), 0, 0)!= SLNet::CONNECTION_ATTEMPT_STARTED)
-	{
-		printf("Failed connect call for %s.\n", hostName);
-		return SLNet::UNASSIGNED_SYSTEM_ADDRESS;
-	}
-	printf("Connecting...\n");
-	SLNet::Packet *packet;
-	// #med - review --- at least we'd add a sleep interval here - also review whether the behavior is correct to only check the very first received packet (old RakNet code was bogus in this regards)
-	do {
-		packet = rakPeer->Receive();
-	} while (packet == nullptr);
-
-	if (packet->data[0] == ID_CONNECTION_REQUEST_ACCEPTED)
-		returnvalue = packet->systemAddress;
-
-	rakPeer->DeallocatePacket(packet);
-
-	return returnvalue;
-}
-struct UDPProxyServerFramework : public SampleFramework, public UDPProxyServerResultHandler
-{
-	UDPProxyServerFramework() {udpps=0; isSupported=UDPProxyServerFramework_Supported;}
-	virtual const char * QueryName(void) {return "UDPProxyServer";}
-	virtual const char * QueryRequirements(void) {return "Bandwidth to handle forwarded game traffic.";}
-	virtual const char * QueryFunction(void) {return "Allows game clients to forward network traffic transparently.\nOne or more instances required, can be added at runtime.";}
-	virtual void Init(SLNet::RakPeerInterface *rakPeer)
-	{
-		if (isSupported==SUPPORTED)
-		{
-			printf("Logging into UDPProxyCoordinator...\n");
-			SystemAddress coordinatorAddress=SelectAmongConnectedSystems(rakPeer, "UDPProxyCoordinator");
-			if (coordinatorAddress== SLNet::UNASSIGNED_SYSTEM_ADDRESS)
-			{
-				printf("Warning: RakPeer is not currently connected to any system.\nEnter option:\n(1). UDPProxyCoordinator is on localhost\n(2). Connect to a remote system\n(3). Fail.\nOption: ");
-				int ch=_getche();
-				printf("\n");
-				if (ch=='1' || ch==13) // 13 is just pressing return
-				{
-					coordinatorAddress=rakPeer->GetInternalID(UNASSIGNED_SYSTEM_ADDRESS,0);
-				}
-				else if (ch=='2')
-				{
-					coordinatorAddress=ConnectBlocking(rakPeer, "UDPProxyCoordinator");
-					if (coordinatorAddress== SLNet::UNASSIGNED_SYSTEM_ADDRESS)
-					{
-						printf("Failed to connect.\n");
-						isSupported=QUERY;
-						return;
-					}
-				}
-				else
-				{
-					printf("Failed. Not connected to UDPProxyCoordinator.\n");
-					isSupported=QUERY;
-					return;
-				}
-			}
-			
-			char password[512];
-			printf("Enter password used with UDPProxyCoordinator: ");
-			Gets(password,sizeof(password));
-			if (password[0]==0)
-			{
-				password[0]='a';
-				password[1]=0;
-			}
-
-			udpps = new UDPProxyServer;
-			udpps->SetResultHandler(this);
-			rakPeer->AttachPlugin(udpps);
-			if (udpps->LoginToCoordinator(password, coordinatorAddress)==false)
-			{
-				printf("LoginToCoordinator call failed.\n");
-				isSupported=QUERY;
-				rakPeer->DetachPlugin(udpps);
-				delete udpps;
-				udpps=0;
-				return;
-			}
-		}
-	}
-	virtual void ProcessPacket(SLNet::RakPeerInterface *rakPeer, Packet *packet)
-	{
-		// unused parameters
-		(void)rakPeer;
-		(void)packet;
-	}
-	virtual void Shutdown(SLNet::RakPeerInterface *rakPeer)
-	{
-		if (udpps)
-		{
-			rakPeer->DetachPlugin(udpps);
-			delete udpps;
-			udpps=0;
-		}
-	}
-
-	virtual void OnLoginSuccess(SLNet::RakString usedPassword, SLNet::UDPProxyServer *proxyServerPlugin)
-	{
-		// unused parameters
-		(void)proxyServerPlugin;
-
-		printf("%s logged into UDPProxyCoordinator.\n", QueryName());
-	}
-	virtual void OnAlreadyLoggedIn(SLNet::RakString usedPassword, SLNet::UDPProxyServer *proxyServerPlugin)
-	{
-		// unused parameters
-		(void)proxyServerPlugin;
-
-		printf("%s already logged into UDPProxyCoordinator.\n", QueryName());
-	}
-	virtual void OnNoPasswordSet(SLNet::RakString usedPassword, SLNet::UDPProxyServer *proxyServerPlugin)
-	{
-		// unused parameters
-		(void)proxyServerPlugin;
-
-		printf("%s failed login to UDPProxyCoordinator. No password set.\n", QueryName());
-		isSupported=QUERY;
-		delete udpps;
-		udpps=0;
-	}
-	virtual void OnWrongPassword(SLNet::RakString usedPassword, SLNet::UDPProxyServer *proxyServerPlugin)
-	{
-		// unused parameters
-		(void)proxyServerPlugin;
-
-		printf("%s failed login to UDPProxyCoordinator. %s was the wrong password.\n", QueryName(), usedPassword.C_String());
-		isSupported=QUERY;
-		delete udpps;
-		udpps=0;
-	}
-
-	UDPProxyServer *udpps;
-};
-struct CloudServerFramework : public SampleFramework
-{
-	CloudServerFramework() {cloudServer=nullptr;isSupported=CloudServerFramework_Supported;}
-	virtual const char * QueryName(void) {return "CloudServer";}
-	virtual const char * QueryRequirements(void) {return "None.";}
-	virtual const char * QueryFunction(void) {return "Single instance cloud server that maintains connection counts\nUseful as a directory server to find other client instances.";}
-	virtual void Init(SLNet::RakPeerInterface *rakPeer)
-	{
-		if (isSupported==SUPPORTED)
-		{
-			cloudServer = new CloudServer;
-			rakPeer->AttachPlugin(cloudServer);
-			cloudClient = new CloudClient;
-			rakPeer->AttachPlugin(cloudClient);
-			cloudServerHelperFilter = new CloudServerHelperFilter;
-			cloudServer->AddQueryFilter(cloudServerHelperFilter);
-			cloudServer->SetMaxUploadBytesPerClient(65535);
-			cloudServerHelper.OnConnectionCountChange(rakPeer, cloudClient);
-		}
-	}
-	virtual void ProcessPacket(SLNet::RakPeerInterface *rakPeer, Packet *packet)
-	{
-		if (isSupported!=SUPPORTED)
-			return;
-
-		switch (packet->data[0])
-		{
-		case ID_NEW_INCOMING_CONNECTION:
-#ifdef VERBOSE_LOGGING
-			printf("Got connection to %s\n", packet->systemAddress.ToString(true));
-#endif
-			cloudServerHelper.OnConnectionCountChange(rakPeer, cloudClient);
-			break;
-		case ID_CONNECTION_LOST:
-		case ID_DISCONNECTION_NOTIFICATION:
-#ifdef VERBOSE_LOGGING
-			printf("Lost connection to %s\n", packet->systemAddress.ToString(true));
-#endif
-			cloudServerHelper.OnConnectionCountChange(rakPeer, cloudClient);
-			break;
-		}
-	}
-	virtual void Shutdown(SLNet::RakPeerInterface *rakPeer)
-	{
-		if (cloudServer)
-		{
-			rakPeer->DetachPlugin(cloudServer);
-			delete cloudServer;
-			cloudServer=0;
-			rakPeer->DetachPlugin(cloudClient);
-			delete cloudClient;
-			cloudClient=0;
-			delete cloudServerHelperFilter;
-			cloudServerHelperFilter=0;
-		}
-	}
-
-	SLNet::CloudServer *cloudServer;
-	SLNet::CloudClient *cloudClient;
-	SLNet::CloudServerHelperFilter *cloudServerHelperFilter;
-	SLNet::CloudServerHelper cloudServerHelper;
-};
 int main(int argc, char **argv)
 {
 	SLNet::RakPeerInterface *rakPeer= SLNet::RakPeerInterface::GetInstance();
@@ -553,99 +172,30 @@ int main(int argc, char **argv)
 
 	rakPeer->SetMaximumIncomingConnections(8096);
 
-	SampleFramework *samples[FEATURE_LIST_COUNT];
-	i=0;
-	samples[i++] = new NatTypeDetectionServerFramework;
-	samples[i++] = new NatPunchthroughServerFramework;
-	samples[i++] = new RelayPluginFramework;
-	samples[i++] = new UDPProxyCoordinatorFramework;
-	samples[i++] = new UDPProxyServerFramework;
-	samples[i++] = new CloudServerFramework;
-	assert(i==FEATURE_LIST_COUNT);
+	SampleFramework *sample = new NatPunchthroughServerFramework;
+	printf("=======================\n"
+		   "NAT Punchthrough Server\n"
+		   "=======================\n");
+	printf("Based on SLikeNet's NAT Punchthrough Server\n\n\n");
 
-	bool isFirstPrint=true;
-	for (i=0; i < FEATURE_LIST_COUNT; i++)
+	if (sample->isSupported==SUPPORTED)
 	{
-		if (samples[i]->isSupported==QUERY)
+		printf("Starting %s...\n", sample->QueryName());
+		sample->Init(rakPeer);
+		if (sample->isSupported!=SUPPORTED)
 		{
-			if (isFirstPrint)
-			{
-				printf("NAT traversal server.\nSee http://www.dx.net/raknet_dx.php for discounted server hosting\nSelect which features to support.\n");
-				isFirstPrint=false;
-			}
-			printf("\n%s\nRequirements: %s\nDescription: %s\n", samples[i]->QueryName(), samples[i]->QueryRequirements(), samples[i]->QueryFunction());
-			printf("Support %s? (y/n): ", samples[i]->QueryName());
-			int supported=_getche();
-			if (supported=='y' || supported=='Y' || supported==13) // 13 is just pressing return
-			{
-				samples[i]->isSupported=SUPPORTED;
-			}
-			printf("\n");
+			printf("Failed to start %s.", sample->QueryName());
+			printf("\nCatastrophic failure.\nExiting now.\n");
+			// We have a problem
+			rakPeer->Shutdown(100);
+			SLNet::RakPeerInterface::DestroyInstance(rakPeer);
+			return 1;
 		}
-	}
-
-	printf("\n");
-
-	for (i=0; i < FEATURE_LIST_COUNT; i++)
-	{
-		if (samples[i]->isSupported==SUPPORTED)
-		{
-			printf("Starting %s...\n", samples[i]->QueryName());
-			samples[i]->Init(rakPeer);
-			if (samples[i]->isSupported!=SUPPORTED)
-			{
-				printf("Failed to start %s.", samples[i]->QueryName());
-				if (samples[i]->isSupported==QUERY)
-				{
-					printf(" Retry? (y/n): ");
-					int supported=_getche();
-					if (supported=='y' || supported=='Y')
-					{
-						samples[i]->isSupported=SUPPORTED;
-						i--;
-					}
-				}
-				else
-					printf("\n");
-				printf("\n");
-			}
-			else
-				printf("Success.\n\n");
-		}
-	}
-
-	bool anySupported=false;
-	for (i=0; i < FEATURE_LIST_COUNT; i++)
-	{
-		if (samples[i]->isSupported==SUPPORTED)
-		{
-			anySupported=true;
-			break;
-		}
-	}
-
-	if (anySupported==false)
-	{
-		printf("No features supported! Quitting.\n");
-		rakPeer->Shutdown(100);
-		SLNet::RakPeerInterface::DestroyInstance(rakPeer);
-		return 1;
-	}
-
-	bool firstComma=true;
-	printf("Supported features: ");
-	for (i=0; i < FEATURE_LIST_COUNT; i++)
-	{
-		if (samples[i]->isSupported==SUPPORTED)
-		{
-			if (firstComma==false)
-				printf(", ");
-			else
-				firstComma=false;
-			printf("%s", samples[i]->QueryName());
-		}
+		else
+			printf("Success.\n\n");
 	}
 	
+
 	printf("\nEntering update loop. Press 'q' to quit.\n");
 
 	SLNet::Packet *packet;
@@ -654,10 +204,8 @@ int main(int argc, char **argv)
 	{
 		for (packet=rakPeer->Receive(); packet; rakPeer->DeallocatePacket(packet), packet=rakPeer->Receive())
 		{
-			for (i=0; i < FEATURE_LIST_COUNT; i++)
-			{
-				samples[i]->ProcessPacket(rakPeer, packet);
-			}
+			sample->ProcessPacket(rakPeer, packet);
+			
 		}
 
 		if (_kbhit())
@@ -697,10 +245,7 @@ int main(int argc, char **argv)
 	}
 
 	printf("Quitting.\n");
-	for (i=0; i < FEATURE_LIST_COUNT; i++)
-	{
-		samples[i]->Shutdown(rakPeer);
-	}
+	sample->Shutdown(rakPeer);
 	rakPeer->Shutdown(100);
 	SLNet::RakPeerInterface::DestroyInstance(rakPeer);
 	return 0;
