@@ -32,6 +32,9 @@
 #include "DS_OrderedList.h"
 #include "string.h"
 
+#include <unordered_map>
+#include <string>
+
 namespace SLNet
 {
 /// Forward declarations
@@ -151,6 +154,11 @@ protected:
 
 	SystemAddress boundAddresses[MAXIMUM_NUMBER_OF_INTERNAL_IDS];
 	unsigned char boundAddressCount;
+
+	/** Map of 5-digit room IDs to GUIDs */
+	std::unordered_map<std::string, RakNetGUID> guidLookup;
+	/** Map of GUIDs (string-ified) to 5-digit room IDs */
+	std::unordered_map<std::string, std::string> reverseLookup;
 
 };
 

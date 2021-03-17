@@ -27,6 +27,46 @@
 #include "slikenet/linux_adapter.h"
 #include "slikenet/osx_adapter.h"
 
+#include <random>
+#include <sstream>
+#include <iostream>
+
+// ==================================================
+//					CUSTOM CONSTANTS
+// ==================================================
+
+constexpr std::size_t ROOM_ID_LENGTH = 5;
+
+constexpr unsigned int MAX_ATTEMPTS = 50000;
+
+constexpr std::size_t MIN_API = 0;
+
+// End constants
+
+/**
+ * Generate a random 5 digit room ID
+ */
+std::string random_string() {
+    const std::string CHARACTERS = "0123456789";
+
+    std::random_device random_device;
+    std::mt19937 generator(random_device());
+    std::uniform_int_distribution<> distribution(0, CHARACTERS.size() - 1);
+
+    std::string random_string;
+
+    for (std::size_t i = 0; i < ROOM_ID_LENGTH; i++) {
+        random_string += CHARACTERS[distribution(generator)];
+		if(i == 0 && random_string == "0") {
+			// Disallow starting w/ 0 because GUID cannot handle it
+			random_string = "";
+			i--;
+		}
+    }
+
+    return random_string;
+}
+
 using namespace SLNet;
 
 void NatPunchthroughServerDebugInterface_Printf::OnServerMessage(const char *msg)
@@ -121,7 +161,7 @@ int SLNet::NatPunchthroughServer::NatPunchthroughUserComp( const RakNetGUID &key
 
 STATIC_FACTORY_DEFINITIONS(NatPunchthroughServer,NatPunchthroughServer);
 
-NatPunchthroughServer::NatPunchthroughServer()
+NatPunchthroughServer::NatPunchthroughServer(): guidLookup(), reverseLookup()
 {
 	lastUpdate=0;
 	sessionId=0;
@@ -295,6 +335,13 @@ void NatPunchthroughServer::OnClosedConnection(const SystemAddress &systemAddres
 	(void) lostConnectionReason;
 	(void) systemAddress;
 
+	auto ggIter = reverseLookup.find(rakNetGUID.ToString());
+	if(ggIter != reverseLookup.end()) {
+		std::cout << "Disconnecting " << ggIter->second << std::endl;
+		guidLookup.erase(ggIter->second);
+		reverseLookup.erase(rakNetGUID.ToString());
+	}
+
 	unsigned int i=0;
 	bool objectExists;
 	i = users.GetIndexFromKey(rakNetGUID, &objectExists);
@@ -382,6 +429,34 @@ void NatPunchthroughServer::OnNewConnection(const SystemAddress &systemAddress, 
 
 //	printf("Adding to users %s\n", rakNetGUID.ToString());
 //	printf("DEBUG users[0] guid=%s\n", users[0]->guid.ToString());
+
+	
+	std::string roomID;
+	unsigned int i = 0;
+	do {
+		roomID = random_string();
+		if (++i > MAX_ATTEMPTS) {
+			// We have big problem
+			return;
+		}
+	} while (guidLookup.find(roomID) != guidLookup.end());
+	guidLookup.emplace(roomID, rakNetGUID);
+	reverseLookup.emplace(rakNetGUID.ToString(), roomID);
+
+	std::cout << "Assigning room ID " << roomID << std::endl;
+
+	std::vector<uint8_t> msg;
+	for(char const &c: roomID) {
+		msg.push_back(c);
+	}
+	msg.push_back(MIN_API);
+
+	SLNet::BitStream bs;
+	bs.Write((MessageID)ID_USER_PACKET_ENUM + 1); // Assigned room enum id
+	bs.Write((uint8_t)msg.size());
+	bs.WriteAlignedBytes(msg.data(), msg.size());
+	rakPeerInterface->Send(&bs, HIGH_PRIORITY, RELIABLE_ORDERED, 0, systemAddress, false);
+
 }
 void NatPunchthroughServer::OnNATPunchthroughRequest(Packet *packet)
 {
@@ -390,6 +465,20 @@ void NatPunchthroughServer::OnNATPunchthroughRequest(Packet *packet)
 	incomingBs.IgnoreBytes(sizeof(MessageID));
 	RakNetGUID recipientGuid, senderGuid;
 	incomingBs.Read(recipientGuid);
+
+
+	std::string roomId = recipientGuid.ToString();
+	std::cout << "Trying to connect to " << roomId << "... ";
+	auto guidIter = guidLookup.find(roomId);
+	if(guidIter != guidLookup.end()) {
+		recipientGuid = guidIter->second;
+		std::cout << "Got GUID " << recipientGuid.ToString() << std::endl;
+	} else {
+		std::cout << "Couldn't find GUID" << std::endl;
+		recipientGuid.FromString("0");
+	}
+
+
 	senderGuid=packet->guid;
 	unsigned int i;
 	bool objectExists;
