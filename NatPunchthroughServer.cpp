@@ -420,6 +420,8 @@ void NatPunchthroughServer::OnNewConnection(const SystemAddress &systemAddress, 
 	(void) systemAddress;
 	(void) isIncoming;
 
+	std::cout << "Got new connection" << std::endl;
+
 	User *user = SLNet::OP_NEW<User>(_FILE_AND_LINE_);
 	user->guid=rakNetGUID;
 	user->mostRecentPort=0;
