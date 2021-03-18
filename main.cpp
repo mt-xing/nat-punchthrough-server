@@ -51,7 +51,7 @@ enum FeatureSupport
 static unsigned short DEFAULT_RAKPEER_PORT=61111;
 
 #define NatTypeDetectionServerFramework_Supported QUERY
-#define NatPunchthroughServerFramework_Supported QUERY
+#define NatPunchthroughServerFramework_Supported SUPPORTED
 #define RelayPlugin_Supported QUERY
 #define UDPProxyCoordinatorFramework_Supported UNSUPPORTED
 #define UDPProxyServerFramework_Supported UNSUPPORTED
