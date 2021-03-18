@@ -454,7 +454,7 @@ void NatPunchthroughServer::OnNewConnection(const SystemAddress &systemAddress, 
 	msg.push_back(MIN_API);
 
 	SLNet::BitStream bs;
-	bs.Write((MessageID)ID_USER_PACKET_ENUM + 1); // Assigned room enum id
+	bs.Write((MessageID)(ID_USER_PACKET_ENUM + 1)); // Assigned room enum id
 	bs.Write((uint8_t)msg.size());
 	bs.WriteAlignedBytes(msg.data(), msg.size());
 	rakPeerInterface->Send(&bs, HIGH_PRIORITY, RELIABLE_ORDERED, 0, systemAddress, false);

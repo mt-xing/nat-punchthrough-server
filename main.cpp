@@ -37,7 +37,7 @@
 #include "slikenet/linux_adapter.h"
 #include "slikenet/osx_adapter.h"
 
-//#define VERBOSE_LOGGING
+#define VERBOSE_LOGGING
 
 using namespace SLNet;
 
