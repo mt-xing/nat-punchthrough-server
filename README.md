@@ -1,6 +1,6 @@
 # NAT Punchthrough Server
 
-This is a customized NAT punchthrough server based off [SLikeNet](https://github.com/SLikeSoft/SLikeNet) for customized clients.
+This is a customized NAT punchthrough server based off [SLikeNet](https://github.com/SLikeSoft/SLikeNet) for [CUGL networked clients](https://github.com/mt-xing/cugl-networking-extension).
 
 ## Setup
 
