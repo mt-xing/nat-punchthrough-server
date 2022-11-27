@@ -1,3 +1,5 @@
+//@ts-check
+
 const port = process.env.PORT || 8080;
 
 const express = require('express');
@@ -10,8 +12,7 @@ const app = express();
 app.use(express.static(path.join(__dirname, '/public')));
 
 const server = createServer(app);
-// noinspection JSCheckFunctionSignatures
-const wss = new WebSocket.Server({server}, null);
+const wss = new WebSocket.Server({server});
 
 console.log("Running now on port " + port);
 
@@ -27,32 +28,18 @@ const MIN_API_VER = 0;
 
 /**
  * An enumeration for the type of network packet received.
- * @type {Readonly<{ForceWin: number, BreachShrink: number, PlayerDisconnect: number, AssignedRoom: number, JoinRoom: number, AllFail: number, Jump: number, DualResolve: number, AllSucceed: number, ApiMismatch: number, StateSync: number, ButtonFlag: number, PositionUpdate: number, ButtonResolve: number, StartGame: number, PlayerJoined: number, AllCreate: number, ButtonCreate: number, ChangeGame: number, DualCreate: number, BreachCreate: number}>}
  */
 const NetworkDataType = Object.freeze({
-	PositionUpdate: 0,
-	Jump: 1,
-	BreachCreate: 2,
-	BreachShrink: 3,
-	DualCreate: 4,
-	DualResolve: 5,
-	ButtonCreate: 6,
-	ButtonFlag: 7,
-	ButtonResolve: 8,
-	AllCreate: 9,
-	AllFail: 10,
-	AllSucceed: 11,
-	ForceWin: 12,
-	StateSync: 13,
+	GeneralMsg: 0,
+	HostMsg: 1,
 	
 	PlayerJoined: 50,
 	PlayerDisconnect: 51,
 	StartGame: 52,
-	ChangeGame: 53,
 	
 	AssignedRoom: 100,
 	JoinRoom: 101,
-	ApiMismatch: 102
+	ApiMismatch: 102,
 });
 
 
@@ -140,7 +127,6 @@ class GameRoom {
 			this.connections.push(ws);
 		}
 		
-		// noinspection JSCheckFunctionSignatures
 		this.broadcast(ws, String.fromCharCode(NetworkDataType.PlayerJoined) + String.fromCharCode(newID));
 		
 		this.currNum++;
@@ -194,29 +180,19 @@ class GameRoom {
 	
 	/**
 	 * Broadcast a message to all players except the one specified (presumably the sender)
-	 * @param {WebSocket} ws The player not to send the message to (or null for everyone)
+	 * @param {WebSocket | null} ws The player not to send the message to (or null for everyone)
 	 * @param msg The message to broadcast
 	 */
 	broadcast(ws, msg) {
 		this.connections.forEach(x => {
 			if (x !== null && x !== ws && x.readyState === WebSocket.OPEN) {
-				// noinspection JSCheckFunctionSignatures
 				x.send(msg);
 			}
 		});
 	}
 }
 
-// noinspection JSUnresolvedFunction
-app.get("/reset", function (req, res) {
-	wss.clients.forEach(ws => ws.terminate());
-	roomToSocket.clear();
-	socketToRoom.clear();
-	res.send("Ok");
-});
-
-// noinspection JSUnresolvedFunction
-wss.on('connection', function (ws) {
+wss.on('connection', function (/** @type {WebSocket.WebSocket & {isAlive: boolean}} */ws) {
 	
 	ws.isAlive = true;
 	ws.on('pong', () => {
@@ -224,9 +200,11 @@ wss.on('connection', function (ws) {
 	});
 	
 	ws.on('message', function incoming(message) {
+		// @ts-ignore
 		const msg = new Uint8Array(message);
+		const tag = /** @type {typeof NetworkDataType[keyof typeof NetworkDataType]} */(msg[0]);
 		
-		switch (msg[0]) {
+		switch (tag) {
 			case NetworkDataType.PlayerDisconnect: {
 				closeConnection(ws);
 				break;
@@ -241,7 +219,7 @@ wss.on('connection', function (ws) {
 				}
 				let roomID;
 				do {
-					roomID = Math.random().toString().substr(2, 5);
+					roomID = '0' + Math.random().toString().substring(2, 6);
 				} while (roomToSocket.has(roomID));
 				const room = new GameRoom(roomID, 6, apiVer);
 				room.addPlayer(ws);
@@ -253,12 +231,12 @@ wss.on('connection', function (ws) {
 				// Response (bit index 1): 0 = success, 1 = no exist, 2 = full; if success, bit index 2 = # of players already
 				const roomID = String.fromCharCode(msg[1]) + String.fromCharCode(msg[2]) + String.fromCharCode(msg[3]) + String.fromCharCode(msg[4]) + String.fromCharCode(msg[5]);
 				console.log("Joining Room " + roomID);
-				if (!roomToSocket.has(roomID)) {
+				const room = roomToSocket.get(roomID);
+				if (room === undefined) {
 					// Room does not exist
 					console.log("Room no exist");
 					ws.send(String.fromCharCode(NetworkDataType.JoinRoom) + String.fromCharCode(1));
-				} else if (roomToSocket.get(roomID).started) {
-					const room = roomToSocket.get(roomID);
+				} else if (room.started) {
 					// Game has started
 					if (room.currNum === room.MAX_NUM) {
 						console.log("Room full");
@@ -271,7 +249,6 @@ wss.on('connection', function (ws) {
 					}
 				} else {
 					// Join Success
-					const room = roomToSocket.get(roomID);
 					if (room.api !== msg[6]) {
 						console.log("Client join with invalid API " + msg[6] + " instead of expected " + room.api);
 						ws.send(String.fromCharCode(NetworkDataType.ApiMismatch));
@@ -289,18 +266,36 @@ wss.on('connection', function (ws) {
 				}
 				break;
 			}
-			default: {
-				const roomID = socketToRoom.get(ws);
-				const room = roomToSocket.get(roomID);
-				if (room) {
-					if (msg[0] === NetworkDataType.StartGame) {
-						room.start();
+			case NetworkDataType.StartGame:
+			case NetworkDataType.GeneralMsg:
+			case NetworkDataType.HostMsg: {
+					const roomID = socketToRoom.get(ws);
+					if (!roomID) {
+						console.error("ERROR: Received message from unrecognzied socket");
+						break;
 					}
-					room.broadcast(ws, message);
-				} else {
-					console.log("ERROR: Received message for invalid roomID: " + roomID);
+					const room = roomToSocket.get(roomID);
+					if (room) {
+						if (msg[0] === NetworkDataType.StartGame) {
+							room.start();
+						}
+						
+						if (msg[0] !== NetworkDataType.HostMsg) {
+							room.broadcast(ws, message);
+						} else {
+							room.connections[0]?.send(message);
+						}
+					} else {
+						console.error("ERROR: Received message for invalid roomID: " + roomID);
+					}
+					break;
 				}
+			case NetworkDataType.PlayerJoined:
+			case NetworkDataType.ApiMismatch:
+				console.error(`Received invalid msg on server ${tag}`);
 				break;
+			default: {
+				(/** @param {never} x */(x) => {throw new Error(x);})(tag);
 			}
 		}
 	});
@@ -316,11 +311,12 @@ function closeConnection(ws) {
 	if (!roomID) { return; }
 	
 	const room = roomToSocket.get(roomID);
+	if (!room) { return; }
 	room.dropPlayer(ws);
 }
 
 setInterval(function () {
-	wss.clients.forEach(ws => {
+	/** @type {Set<WebSocket.WebSocket & {isAlive: boolean}>} */(wss.clients).forEach(ws => {
 		if (ws.isAlive === false) {
 			closeConnection(ws);
 			return;
